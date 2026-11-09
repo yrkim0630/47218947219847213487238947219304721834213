@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VALORANT STYLE FPS</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0f1923;
+            color: #ece8e1;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background: #111;
+            border: 2px solid #ff4655;
+            box-shadow: 0 0 20px rgba(255, 70, 85, 0.4);
+            cursor: crosshair;
+        }
+        canvas {
+            display: block;
+            background: linear-gradient(135deg, #1b2735 0%, #090a0f 100%);
+        }
+        /* UI 레이어 스타일 (발로란트 감성) */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: #ff4655;
+            text-shadow: 0 0 5px rgba(255, 70, 85, 0.6);
+        }
+        .hud-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            font-size: 16px;
+            color: #00ffcc;
+        }
+        /* 십자선 크로스헤어 */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ffcc;
+        }
+        #crosshair::before { top: 4px; left: -6px; width: 22px; height: 2px; }
+        #crosshair::after { top: -6px; left: 4px; width: 2px; height: 22px; }
+
+        /* 시작 및 오버 화면 */
+        #screen-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 25, 35, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        h1 {
+            color: #ff4655;
+            font-size: 42px;
+            margin-bottom: 10px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(255, 70, 85, 0.8);
+        }
+        p {
+            color: #ece8e1;
+            margin-bottom: 30px;
+            font-size: 16px;
+            letter-spacing: 1px;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .btn {
+            background-color: #ff4655;
+            color: #ece8e1;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+        }
+        .btn:hover {
+            background-color: #ff5864;
+            box-shadow: 0 0 15px #ff4655;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <!-- 3D 렌더링 캔버스 -->
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <!-- 고정 크로스헤어 -->
+        <div id="crosshair"></div>
+
+        <!-- 인게임 HUD -->
+        <div class="ui-layer">
+            <div class="hud-top">
+                <div id="score-board">SCORE: 0</div>
+                <div id="time-board">TIME: 30</div>
+            </div>
+            <div class="hud-bottom">
+                <div id="ammo-board">VANDAL // 25 / 25</div>
+                <div style="color: #8892b0; font-size: 12px;">WASD: MOVE | MOUSE: AIM | CLICK: SHOOT</div>
+            </div>
+        </div>
+
+        <!-- 오버레이 화면 (시작 및 종료) -->
+        <div id="screen-overlay">
+            <h1>VALO-FPS</h1>
+            <p>제한 시간 30초 동안 나타나는 타겟을 최대한 많이 맞추세요!<br>조작키: WASD (이동) / 마우스 (시점 및 사격)</p>
+            <button class="btn" id="start-btn">게임 시작</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('screen-overlay');
+        const scoreBoard = document.getElementById('score-board');
+        const timeBoard = document.getElementById('time-board');
+
+        let gameRunning = false;
+        let score = 0;
+        let timeLeft = 30;
+        let timerInterval;
+
+        // 플레이어 상태 (Pseudo-3D 레이캐스팅 기본 변수)
+        let player = {
+            x: 4,
+            y: 4,
+            angle: 0
+        };
+
+        // 키보드 입력 상태 저장
+        let keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
+
+        // 타겟 리스트
+        let targets = [];
+
+        // 맵 구조 (1: 벽, 0: 빈 공간)
+        const map = [
+            [1,1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,0,1],
+            [1,0,1,1,0,1,0,1],
+            [1,0,0,0,0,0,0,1],
+            [1,0,1,0,1,1,0,1],
+            [1,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1]
+        ];
+
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.code)) {
+                keys[e.key] = true;
+            }
+            if (e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 'ArrowRight') keys.d = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = false;
+            }
+            if (e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 'ArrowRight') keys.d = false;
+        });
+
+        // 마우스로 시점 회전
+        canvas.addEventListener('mousemove', (e) => {
+            if (!gameRunning) return;
+            // 캔버스 중앙 기준 마우스 움직임으로 각도 조절
+            let movementX = e.movementX || 0;
+            player.angle += movementX * 0.003;
+        });
+
+        // 클릭 시 사격 및 타겟 적중 판정
+        canvas.addEventListener('click', () => {
+            if (!gameRunning) return;
+            
+            // 화면 중앙(플레이어 조준점) 근처에 있는 타겟 확인
+            for (let i = targets.length - 1; i >= 0; i--) {
+                let t = targets[i];
+                let dx = t.x - player.x;
+                let dy = t.y - player.y;
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                let angleToTarget = Math.atan2(dy, dx) - player.angle;
+
+                // 각도 보정 (-PI ~ PI)
+                while (angleToTarget < -Math.PI) angleToTarget += Math.PI * 2;
+                while (angleToTarget > Math.PI) angleToTarget -= Math.PI * 2;
+
+                // 화면 중앙 근처에 있고 거리가 적당하면 명중
+                if (Math.abs(angleToTarget) < 0.2 && dist < 5) {
+                    score += 100;
+                    scoreBoard.innerText = `SCORE: ${score}`;
+                    targets.splice(i, 1);
+                    spawnTarget();
+                    break;
+                }
+            }
+        });
+
+        function spawnTarget() {
+            let emptySpaces = [];
+            for (let r = 0; r < map.length; r++) {
+                for (let c = 0; c < map[r].length; c++) {
+                    if (map[r][c] === 0) {
+                        emptySpaces.push({ x: c + 0.5, y: r + 0.5 });
+                    }
+                }
+            }
+            if (emptySpaces.length > 0) {
+                let spot = emptySpaces[Math.floor(Math.random() * emptySpaces.length)];
+                targets.push({ x: spot.x, y: spot.y });
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            overlay.style.display = 'none';
+            // 포인터 락 요청 (마우스 시점 고정)
+            canvas.requestPointerLock();
+            startGame();
+        });
+
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            timeLeft = 30;
+            player.x = 1.5;
+            player.y = 1.5;
+            player.angle = 0;
+            targets = [];
+            scoreBoard.innerText = `SCORE: ${score}`;
+            timeBoard.innerText = `TIME: ${timeLeft}`;
+
+            for (let i = 0; i < 3; i++) spawnTarget();
+
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timeBoard.innerText = `TIME: ${timeLeft}`;
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameRunning = false;
+            clearInterval(timerInterval);
+            document.exitPointerLock();
+            overlay.style.display = 'flex';
+            overlay.querySelector('h1').innerText = "GAME OVER";
+            overlay.querySelector('p').innerText = `최종 점수: ${score}점\n다시 도전하려면 아래 버튼을 누르세요.`;
+            startBtn.innerText = "다시 시작";
+        }
+
+        function update() {
+            let moveSpeed = 0.03;
+            let nextX = player.x;
+            let nextY = player.y;
+
+            if (keys.w || keys.ArrowUp) {
+                nextX += Math.cos(player.angle) * moveSpeed;
+                nextY += Math.sin(player.angle) * moveSpeed;
+            }
+            if (keys.s || keys.ArrowDown) {
+                nextX -= Math.cos(player.angle) * moveSpeed;
+                nextY -= Math.sin(player.angle) * moveSpeed;
+            }
+            if (keys.a || keys.ArrowLeft) {
+                nextX += Math.sin(player.angle) * moveSpeed;
+                nextY -= Math.cos(player.angle) * moveSpeed;
+            }
+            if (keys.d || keys.ArrowRight) {
+                nextX -= Math.sin(player.angle) * moveSpeed;
+                nextY += Math.cos(player.angle) * moveSpeed;
+            }
+
+            // 충돌 감지
+            if (map[Math.floor(nextY)][Math.floor(nextX)] === 0) {
+                player.x = nextX;
+                player.y = nextY;
+            }
+        }
+
+        function render() {
+            // 배경 그라데이션 및 바닥/하늘 분할
+            ctx.fillStyle = '#0f1923';
+            ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
+            ctx.fillStyle = '#1f2937';
+            ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
+
+            // 레이캐스팅 엔진을 이용한 간단한 3D 벽체 렌더링
+            let numRays = canvas.width;
+            let fov = Math.PI / 3; // 60도 시야각
+
+            for (let i = 0; i < numRays; i++) {
+                let rayAngle = (player.angle - fov / 2) + (i / numRays) * fov;
+                let distanceToWall = 0;
+                let hitWall = false;
+
+                let cos = Math.cos(rayAngle);
+                let sin = Math.sin(rayAngle);
+
+                while (!hitWall && distanceToWall < 16) {
+                    distanceToWall += 0.05;
+                    let testX = Math.floor(player.x + cos * distanceToWall);
+                    let testY = Math.floor(player.y + sin * distanceToWall);
+
+                    if (testX < 0 || testX >= 8 || testY < 0 || testY >= 7) {
+                        hitWall = true;
+                        distanceToWall = 16;
+                    } else if (map[testY][testX] === 1) {
+                        hitWall = true;
+                    }
+                }
+
+                // 어안 현상 보정
+                let correctedDist = distanceToWall * Math.cos(rayAngle - player.angle);
+                let wallHeight = Math.min(canvas.height, (canvas.height / correctedDist));
+
+                // 발로란트 감성의 다크한 벽 컬러 채색
+                let brightness = Math.max(20, 255 - (correctedDist * 15));
+                ctx.fillStyle = `rgb(${brightness * 0.4}, ${brightness * 0.5}, ${brightness * 0.6})`;
+                ctx.fillRect(i, (canvas.height - wallHeight) / 2, 1, wallHeight);
+            }
+
+            // 타겟(적) 렌더링 (원근감 적용)
+            targets.forEach(t => {
+                let dx = t.x - player.x;
+                let dy = t.y - player.y;
+                let dist = Math.sqrt(dx*dx + dy*dy);
+                let angleToTarget = Math.atan2(dy, dx) - player.angle;
+
+                while (angleToTarget < -Math.PI) angleToTarget += Math.PI * 2;
+                while (angleToTarget > Math.PI) angleToTarget -= Math.PI * 2;
+
+                if (angleToTarget > -fov/2 && angleToTarget < fov/2 && dist > 0.2) {
+                    let screenX = (canvas.width / 2) + Math.tan(angleToTarget) * (canvas.width);
+                    let size = Math.max(10, 300 / dist);
+
+                    // 발로란트 레드/네온 스타일의 타겟 디자인
+                    ctx.fillStyle = '#ff4655';
+                    ctx.beginPath();
+                    ctx.arc(screenX, canvas.height / 2, size / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#ece8e1';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
